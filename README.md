@@ -15,3 +15,5 @@ Para este primer proyecto del MBA de Data Analytics el objetivo era realizar un 
  [Ver Google Sheet] https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?usp=sharing
   📊 Dashboard interactivo en Google Sheets:  
 [Ver Google Sheet]((https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?usp=sharing))
+
+- **Resultado del proyecto:**
