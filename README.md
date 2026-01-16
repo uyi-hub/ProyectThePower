@@ -1,4 +1,4 @@
-[Datos idealista .csv](https://github.com/user-attachments/files/24650100/Datos.idealista.csv)# ProyectThePower 🗂 
+# ProyectThePower 🗂 
 ## README.MD
 
 :fa-step-forward: Repositorio ejemplo para el proyecto practico de EDA del master en data analytics de The Power
