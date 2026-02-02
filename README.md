@@ -11,10 +11,12 @@ Para este primer proyecto del MBA de Data Analytics el objetivo era realizar un 
 - **Estructura del proyecto:**
   Dataset bruto (raw)
 [Datos idealista .csv.zip](https://github.com/user-attachments/files/24650134/Datos.idealista.csv.zip)
-  Dataset limpio (clean)
- [Ver Google Sheet] [https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?usp=sharing](https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?gid=643385298#gid=643385298)
-  📊 Dashboard interactivo en Google Sheets:  
-[Ver Google Sheet]((https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?usp=sharing))
+
+   Dataset limpio (clean)
+ [Ver Google Sheet] https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?gid=1342603997#gid=1342603997
+
+  📊 **Dashboard Final:**  
+[Ver Google Sheet] https://docs.google.com/spreadsheets/d/1WP0Bnx5O9zxu2nfk-Ut1MEJ97IViJWlk8SFA0a5qfuY/edit?gid=643385298#gid=643385298
 
 - **Resultado del proyecto:**
 Empezando por el inicio de la transformacion de los datos en crudo, opte por ocultar la columna de "Pecio Anterior" ya que era un dato que no iba a utilizar y no me servia a la hora del resultado final del EDA. Luego pase a formato moneda la columna de "Precio Actual" y decidi completar con "ND" los casilleros vacios, tanto de la columna de "Ascensor" como la de "Localizacion", la de "Plantas" y la de "Tag", ya que eran datos que no tenia manera de comprobar.
