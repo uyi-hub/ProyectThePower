@@ -1,7 +1,7 @@
 # ProyectThePower 🗂 
 ## README.MD
 
-:fa-step-forward: Repositorio ejemplo para el proyecto practico de EDA del master en data analytics de The Power
+## **Repositorio ejemplo para el proyecto practico de EDA del master en data analytics de The Power**
 
 ------------
 
