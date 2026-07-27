@@ -1,0 +1,5 @@
+pip install numpy
+
+# si nos da error hacemos
+
+pip3 install numpy
