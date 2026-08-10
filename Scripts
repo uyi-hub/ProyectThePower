@@ -1,0 +1,526 @@
+"""
+02_analisis_descriptivo.py
+----------------------------
+Análisis estadístico descriptivo sobre el dataset final (fusión de campañas
++ datos demográficos). Genera por consola los principales estadísticos y
+guarda dos tablas de apoyo en data/processed/ que se usan luego en el README
+(informe) y en las visualizaciones.
+"""
+
+import pandas as pd
+
+RUTA_PROCESSED = "../data/processed"
+
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", 160)
+
+df = pd.read_csv(f"{RUTA_PROCESSED}/dataset_final.csv")
+
+# Columnas 'ruido' que no aportan valor analítico real (ver justificación
+# en el script de limpieza), las dejamos fuera del análisis descriptivo
+COLUMNAS_EXCLUIDAS = ["latitude", "longitude", "id", "date", "Dt_Customer", "hoja_origen"]
+df_analisis = df.drop(columns=COLUMNAS_EXCLUIDAS)
+
+
+# ============================================================
+# 1. VISIÓN GENERAL
+# ============================================================
+print("=" * 70)
+print("1. VISIÓN GENERAL DEL DATASET")
+print("=" * 70)
+print(f"Filas: {df.shape[0]:,} | Columnas: {df.shape[1]}")
+print("\nDistribución de la variable objetivo (y):")
+print(df["y"].value_counts())
+print(df["y"].value_counts(normalize=True).round(3) * 100, "%")
+print("\n(El dataset está desbalanceado: solo ~11% de los clientes suscribe "
+      "el depósito. Esto es importante para no sacar conclusiones erróneas "
+      "de comparaciones de medias sin tener en cuenta el tamaño de cada grupo.)")
+
+
+# ============================================================
+# 2. ESTADÍSTICOS DESCRIPTIVOS - VARIABLES NUMÉRICAS
+# ============================================================
+print("\n" + "=" * 70)
+print("2. ESTADÍSTICOS DESCRIPTIVOS (variables numéricas)")
+print("=" * 70)
+columnas_numericas = [
+    "age", "duration", "campaign", "pdays", "previous",
+    "emp_var_rate", "cons_price_idx", "cons_conf_idx", "euribor3m", "nr_employed",
+    "Income", "Kidhome", "Teenhome", "NumWebVisitsMonth",
+]
+resumen_numerico = df_analisis[columnas_numericas].describe().T
+resumen_numerico["mediana"] = df_analisis[columnas_numericas].median()
+print(resumen_numerico.round(2))
+resumen_numerico.round(2).to_csv(f"{RUTA_PROCESSED}/resumen_estadistico.csv")
+
+
+# ============================================================
+# 3. MATRIZ DE CORRELACIÓN
+# ============================================================
+print("\n" + "=" * 70)
+print("3. MATRIZ DE CORRELACIÓN (variables numéricas)")
+print("=" * 70)
+correlacion = df_analisis[columnas_numericas].corr()
+print(correlacion.round(2))
+correlacion.round(3).to_csv(f"{RUTA_PROCESSED}/matriz_correlacion.csv")
+
+print("\nCorrelaciones más fuertes (excluyendo la diagonal):")
+# Extraemos manualmente los pares (i, j) con i < j para no repetir cada
+# correlación dos veces (la matriz es simétrica) ni contar la diagonal (1.0)
+pares = []
+cols = correlacion.columns
+for i in range(len(cols)):
+    for j in range(i + 1, len(cols)):
+        pares.append((cols[i], cols[j], correlacion.iloc[i, j]))
+pares_ordenados = sorted(pares, key=lambda x: abs(x[2]), reverse=True)
+for var1, var2, valor in pares_ordenados[:8]:
+    print(f"  {var1:>16} vs {var2:<16} -> {valor:+.2f}")
+
+
+# ============================================================
+# 4. TASA DE SUSCRIPCIÓN POR VARIABLE CATEGÓRICA
+# ============================================================
+print("\n" + "=" * 70)
+print("4. TASA DE SUSCRIPCIÓN (% de 'yes') POR CATEGORÍA")
+print("=" * 70)
+
+variables_categoricas = ["job", "education", "marital", "contact", "poutcome",
+                          "default", "housing", "loan"]
+
+tasas = {}
+for col in variables_categoricas:
+    tasa = (
+        df_analisis.groupby(col)["y"]
+        .apply(lambda s: (s == "yes").mean() * 100)
+        .sort_values(ascending=False)
+    )
+    tasas[col] = tasa
+    print(f"\n--- {col} ---")
+    print(tasa.round(1).astype(str) + " %")
+
+tabla_tasas = pd.concat(tasas, names=["variable", "categoria"]).reset_index()
+tabla_tasas.columns = ["variable", "categoria", "tasa_suscripcion_%"]
+tabla_tasas.to_csv(f"{RUTA_PROCESSED}/tasa_suscripcion_categorias.csv", index=False)
+
+
+# ============================================================
+# 5. COMPARATIVA DE VARIABLES NUMÉRICAS ENTRE SUSCRIPTORES Y NO SUSCRIPTORES
+# ============================================================
+print("\n" + "=" * 70)
+print("5. COMPARATIVA yes vs no (medias) EN VARIABLES NUMÉRICAS")
+print("=" * 70)
+comparativa = df_analisis.groupby("y")[columnas_numericas].mean().T
+comparativa["diferencia_%"] = (
+    (comparativa["yes"] - comparativa["no"]) / comparativa["no"] * 100
+)
+print(comparativa.round(2))
+comparativa.round(2).to_csv(f"{RUTA_PROCESSED}/comparativa_yes_no.csv")
+
+
+# ============================================================
+# 6. EVOLUCIÓN TEMPORAL: TASA DE SUSCRIPCIÓN POR MES/AÑO
+# ============================================================
+print("\n" + "=" * 70)
+print("6. TASA DE SUSCRIPCIÓN POR AÑO Y MES DE CONTACTO")
+print("=" * 70)
+df_fecha = df_analisis.dropna(subset=["contact_year", "contact_month"]).copy()
+df_fecha["contact_year"] = df_fecha["contact_year"].astype(int)
+df_fecha["contact_month"] = df_fecha["contact_month"].astype(int)
+
+tasa_temporal = (
+    df_fecha.groupby(["contact_year", "contact_month"])["y"]
+    .apply(lambda s: (s == "yes").mean() * 100)
+)
+print(tasa_temporal.round(1))
+tasa_temporal.round(2).to_csv(f"{RUTA_PROCESSED}/tasa_suscripcion_temporal.csv")
+
+
+# ============================================================
+# 7. RESULTADO DE CAMPAÑA ANTERIOR (poutcome) vs SUSCRIPCIÓN ACTUAL
+# ============================================================
+print("\n" + "=" * 70)
+print("7. TABLA CRUZADA: resultado de campaña anterior vs suscripción actual")
+print("=" * 70)
+tabla_cruzada = pd.crosstab(df_analisis["poutcome"], df_analisis["y"], normalize="index") * 100
+print(tabla_cruzada.round(1))
+
+print("\nAnálisis completado. Tablas de apoyo guardadas en data/processed/.")
+
+"""
+03_visualizacion.py
+---------------------
+Genera los gráficos que ilustran los hallazgos del análisis descriptivo
+(02_analisis_descriptivo.py) y los guarda como imágenes .png en la carpeta
+visualizaciones/, para poder incrustarlos en el README (informe).
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+RUTA_PROCESSED = "../data/processed"
+RUTA_VIS = "../visualizaciones"
+
+sns.set_theme(style="whitegrid")
+PALETA = {"no": "#94a3b8", "yes": "#2563eb"}  # gris para 'no', azul para 'yes'
+
+df = pd.read_csv(f"{RUTA_PROCESSED}/dataset_final.csv")
+
+
+def guardar(fig, nombre):
+    fig.tight_layout()
+    fig.savefig(f"{RUTA_VIS}/{nombre}.png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Guardado: {nombre}.png")
+
+
+# ============================================================
+# 1. Balance de la variable objetivo
+# ============================================================
+fig, ax = plt.subplots(figsize=(5, 4))
+conteo = df["y"].value_counts()
+ax.bar(conteo.index, conteo.values, color=[PALETA[c] for c in conteo.index])
+for i, v in enumerate(conteo.values):
+    ax.text(i, v + 500, f"{v:,}\n({v/len(df)*100:.1f}%)", ha="center")
+ax.set_title("Distribución de la variable objetivo (¿suscribió el depósito?)")
+ax.set_xlabel("")
+ax.set_ylabel("Número de clientes")
+guardar(fig, "01_balance_clases")
+
+
+# ============================================================
+# 2. Distribución de la edad
+# ============================================================
+fig, ax = plt.subplots(figsize=(7, 4))
+sns.histplot(df["age"], bins=40, kde=True, color="#2563eb", ax=ax)
+ax.set_title("Distribución de la edad de los clientes")
+ax.set_xlabel("Edad")
+ax.set_ylabel("Frecuencia")
+guardar(fig, "02_distribucion_edad")
+
+
+# ============================================================
+# 3. Tasa de suscripción por ocupación (job)
+# ============================================================
+tasa_job = (
+    df.groupby("job")["y"].apply(lambda s: (s == "yes").mean() * 100).sort_values()
+)
+fig, ax = plt.subplots(figsize=(7, 6))
+ax.barh(tasa_job.index, tasa_job.values, color="#2563eb")
+ax.set_title("Tasa de suscripción por ocupación")
+ax.set_xlabel("% de clientes que suscriben")
+guardar(fig, "03_tasa_suscripcion_por_job")
+
+
+# ============================================================
+# 4. Tasa de suscripción por nivel educativo
+# ============================================================
+tasa_edu = (
+    df.groupby("education")["y"].apply(lambda s: (s == "yes").mean() * 100).sort_values()
+)
+fig, ax = plt.subplots(figsize=(7, 5))
+ax.barh(tasa_edu.index, tasa_edu.values, color="#0ea5e9")
+ax.set_title("Tasa de suscripción por nivel educativo")
+ax.set_xlabel("% de clientes que suscriben")
+guardar(fig, "04_tasa_suscripcion_por_educacion")
+
+
+# ============================================================
+# 5. Duración de la llamada según suscripción (boxplot)
+# ============================================================
+fig, ax = plt.subplots(figsize=(6, 4.5))
+sns.boxplot(data=df, x="y", y="duration", hue="y", palette=PALETA, ax=ax, legend=False)
+ax.set_title("Duración de la llamada según si el cliente suscribió")
+ax.set_xlabel("¿Suscribió?")
+ax.set_ylabel("Duración de la llamada (segundos)")
+ax.set_ylim(0, 1500)  # recortamos outliers extremos para que el gráfico sea legible
+guardar(fig, "05_duracion_llamada_vs_suscripcion")
+
+
+# ============================================================
+# 6. Mapa de calor de correlaciones
+# ============================================================
+columnas_numericas = [
+    "age", "duration", "campaign", "pdays", "previous",
+    "emp_var_rate", "cons_price_idx", "cons_conf_idx", "euribor3m", "nr_employed",
+]
+correlacion = df[columnas_numericas].corr()
+fig, ax = plt.subplots(figsize=(8, 6.5))
+sns.heatmap(correlacion, annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)
+ax.set_title("Correlación entre indicadores económicos y variables de campaña")
+guardar(fig, "06_mapa_correlacion")
+
+
+# ============================================================
+# 7. Evolución de la tasa de suscripción en el tiempo
+# ============================================================
+df_fecha = df.dropna(subset=["contact_year", "contact_month"]).copy()
+df_fecha["periodo"] = (
+    df_fecha["contact_year"].astype(int).astype(str)
+    + "-"
+    + df_fecha["contact_month"].astype(int).astype(str).str.zfill(2)
+)
+tasa_temporal = (
+    df_fecha.groupby("periodo")["y"].apply(lambda s: (s == "yes").mean() * 100).sort_index()
+)
+fig, ax = plt.subplots(figsize=(12, 4.5))
+ax.plot(tasa_temporal.index, tasa_temporal.values, marker="o", color="#2563eb", linewidth=1)
+ax.set_title("Evolución mensual de la tasa de suscripción (2015-2019)")
+ax.set_xlabel("Periodo (año-mes)")
+ax.set_ylabel("% de suscripción")
+ax.tick_params(axis="x", rotation=90, labelsize=6)
+# Mostramos solo 1 de cada 3 etiquetas para que no se amontonen
+for i, label in enumerate(ax.xaxis.get_ticklabels()):
+    if i % 3 != 0:
+        label.set_visible(False)
+guardar(fig, "07_evolucion_temporal_suscripcion")
+
+
+# ============================================================
+# 8. Tasa de suscripción por canal de contacto
+# ============================================================
+tasa_contacto = df.groupby("contact")["y"].apply(lambda s: (s == "yes").mean() * 100)
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.bar(tasa_contacto.index, tasa_contacto.values, color="#2563eb")
+for i, v in enumerate(tasa_contacto.values):
+    ax.text(i, v + 0.3, f"{v:.1f}%", ha="center")
+ax.set_title("Tasa de suscripción por canal de contacto")
+ax.set_ylabel("% de suscripción")
+guardar(fig, "08_tasa_suscripcion_por_canal")
+
+
+# ============================================================
+# 9. Resultado de campaña anterior (poutcome) vs suscripción actual
+# ============================================================
+tasa_poutcome = df.groupby("poutcome")["y"].apply(lambda s: (s == "yes").mean() * 100)
+tasa_poutcome = tasa_poutcome.sort_values()
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.barh(tasa_poutcome.index, tasa_poutcome.values, color="#2563eb")
+for i, v in enumerate(tasa_poutcome.values):
+    ax.text(v + 1, i, f"{v:.1f}%", va="center")
+ax.set_title("Tasa de suscripción según resultado de la campaña anterior")
+ax.set_xlabel("% de suscripción")
+guardar(fig, "09_tasa_suscripcion_por_poutcome")
+
+
+# ============================================================
+# 10. Ingresos (Income) según suscripción -- variable demográfica
+# ============================================================
+fig, ax = plt.subplots(figsize=(6, 4.5))
+sns.boxplot(data=df, x="y", y="Income", hue="y", palette=PALETA, ax=ax, legend=False)
+ax.set_title("Ingresos anuales del cliente según si suscribió")
+ax.set_xlabel("¿Suscribió?")
+ax.set_ylabel("Ingresos anuales")
+guardar(fig, "10_income_vs_suscripcion")
+
+print("\nTodas las visualizaciones se han generado correctamente.")
+
+"""
+01_limpieza_transformacion.py
+------------------------------
+Carga los dos datasets en bruto (bank-additional.csv y customer-details.xlsx),
+detecta y corrige los problemas de calidad encontrados durante la exploración
+inicial, y guarda:
+    - data/processed/bank_clean.csv        -> campañas de marketing, limpio
+    - data/processed/customer_clean.csv    -> datos demográficos, limpio (3 hojas unidas)
+    - data/processed/dataset_final.csv     -> unión de ambos por el ID de cliente
+
+Todas las decisiones de limpieza están documentadas en el README del proyecto,
+en la sección "Transformación y limpieza de datos".
+"""
+
+import pandas as pd
+import numpy as np
+
+RUTA_RAW = "../data/raw"
+RUTA_PROCESSED = "../data/processed"
+
+# Diccionario de meses en español -> número de mes.
+# La columna 'date' llega en formato "2-agosto-2019", que no es directamente
+# parseable por pandas (no reconoce nombres de mes en español), así que
+# construimos el mapeo manualmente.
+MESES_ES = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10,
+    "noviembre": 11, "diciembre": 12,
+}
+
+
+# ============================================================
+# 1. LIMPIEZA DE 'bank-additional.csv'
+# ============================================================
+def cargar_y_limpiar_bank(ruta_csv):
+    df = pd.read_csv(ruta_csv)
+
+    # --- Columnas sobrantes ---
+    # 'Unnamed: 0' es un índice residual guardado por error al exportar el CSV
+    df = df.drop(columns=["Unnamed: 0"])
+
+    # --- Normalizar nombres de columnas ---
+    # Sustituimos los puntos por guiones bajos para poder acceder a las
+    # columnas como atributos y evitar errores en operaciones futuras
+    # (ej. df.emp_var_rate en vez de df['emp.var.rate'])
+    df.columns = [c.replace(".", "_") for c in df.columns]
+    df = df.rename(columns={"id_": "id"})
+
+    # --- Estandarizar texto en columnas categóricas ---
+    # 'marital' y 'poutcome' venían en MAYÚSCULAS mientras que 'job',
+    # 'education', 'contact' y 'y' venían en minúsculas. Unificamos todo
+    # a minúsculas para que no se traten como categorías distintas.
+    columnas_categoricas = ["job", "marital", "education", "contact", "poutcome", "y"]
+    for col in columnas_categoricas:
+        df[col] = df[col].str.strip().str.lower()
+
+    # --- Valores faltantes en categóricas ---
+    # El dataset original de UCI (bank-marketing) usa la categoría "unknown"
+    # para estos mismos casos, así que seguimos esa misma convención en vez
+    # de eliminar filas (perderíamos ~4% de los registros).
+    for col in ["job", "marital", "education"]:
+        df[col] = df[col].fillna("unknown")
+
+    # --- default / housing / loan ---
+    # Vienen como float 0.0/1.0/NaN. Los convertimos a texto "yes"/"no"/"unknown"
+    # porque es más legible en el análisis y evita interpretar el NaN como un 0.
+    mapa_binario = {1.0: "yes", 0.0: "no"}
+    for col in ["default", "housing", "loan"]:
+        df[col] = df[col].map(mapa_binario).fillna("unknown")
+
+    # --- age ---
+    # ~12% de valores nulos. Imputamos con la mediana de edad DEL MISMO
+    # trabajo (job), ya que la edad varía sistemáticamente según la
+    # ocupación (ej. 'student' vs 'retired'); es más preciso que usar
+    # una única mediana global.
+    df["age"] = df.groupby("job")["age"].transform(lambda s: s.fillna(s.median()))
+
+    # --- columnas numéricas con coma decimal (formato europeo) ---
+    # cons.price.idx, cons.conf.idx, euribor3m y nr.employed llegan como
+    # texto tipo "93,994" en vez de 93.994, porque el CSV se exportó con
+    # configuración regional europea. Sustituimos la coma por un punto y
+    # convertimos a float.
+    columnas_coma = ["cons_price_idx", "cons_conf_idx", "euribor3m", "nr_employed"]
+    for col in columnas_coma:
+        df[col] = df[col].astype(str).str.replace(",", ".", regex=False)
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # --- Indicadores económicos con nulos ---
+    # Estos 4 indicadores (emp_var_rate, cons_price_idx, cons_conf_idx,
+    # euribor3m, nr_employed) reflejan la situación económica de un
+    # periodo concreto, no del cliente individual: todos los registros
+    # contactados en el mismo mes/año comparten (casi) el mismo valor.
+    # Por eso, en vez de imputar con la media global, rellenamos con la
+    # mediana del propio mes/año una vez tengamos esas columnas creadas
+    # (ver más abajo, después de parsear la fecha).
+
+    # --- date: parsear fecha en español y extraer mes/año ---
+    def parsear_fecha(valor):
+        if pd.isna(valor):
+            return pd.NaT
+        try:
+            dia, mes_texto, anio = valor.split("-")
+            mes_num = MESES_ES[mes_texto.lower()]
+            return pd.Timestamp(year=int(anio), month=mes_num, day=int(dia))
+        except (KeyError, ValueError):
+            return pd.NaT
+
+    df["date"] = df["date"].apply(parsear_fecha)
+    # El enunciado menciona las columnas 'contact_month' y 'contact_year',
+    # que no existían como tal en el CSV recibido: las derivamos de 'date'.
+    df["contact_month"] = df["date"].dt.month
+    df["contact_year"] = df["date"].dt.year
+
+    # Ahora que tenemos mes/año, imputamos los indicadores económicos
+    # faltantes con la mediana de su propio periodo (mes+año)
+    for col in ["cons_price_idx", "euribor3m"]:
+        df[col] = df.groupby(["contact_year", "contact_month"])[col].transform(
+            lambda s: s.fillna(s.median())
+        )
+
+    # --- pdays ---
+    # El valor 999 es un código especial que significa "nunca contactado
+    # antes", no un número real de días. Lo dejamos tal cual (es la
+    # convención estándar de este dataset), pero añadimos una columna
+    # booleana explícita para que el análisis no lo confunda con un dato
+    # numérico real.
+    df["contactado_previamente"] = df["pdays"] != 999
+
+    # --- latitude / longitude ---
+    # Estas dos columnas no aparecen descritas en el enunciado y sus valores
+    # corresponden a coordenadas de EE. UU., no de Portugal (donde opera el
+    # banco). Todo apunta a que son datos sintéticos/ruido sin relación real
+    # con el negocio, así que se conservan en el csv limpio por transparencia,
+    # pero se excluyen del análisis y del informe.
+
+    # --- duplicados ---
+    duplicados = df.duplicated().sum()
+    if duplicados > 0:
+        df = df.drop_duplicates()
+    print(f"[bank] Duplicados eliminados: {duplicados}")
+
+    return df
+
+
+# ============================================================
+# 2. LIMPIEZA DE 'customer-details.xlsx'
+# ============================================================
+def cargar_y_limpiar_customer(ruta_xlsx):
+    hojas = pd.read_excel(ruta_xlsx, sheet_name=None)  # dict {nombre_hoja: df}
+
+    dataframes = []
+    for nombre_hoja, df_hoja in hojas.items():
+        df_hoja = df_hoja.drop(columns=["Unnamed: 0"])
+        # Guardamos de qué hoja viene cada cliente como columna de control,
+        # útil para comprobar que coincide con el año real de Dt_Customer
+        df_hoja["hoja_origen"] = nombre_hoja
+        dataframes.append(df_hoja)
+
+    df = pd.concat(dataframes, ignore_index=True)
+    df = df.rename(columns={"ID": "id"})
+
+    # Comprobación de consistencia: ¿el año de Dt_Customer coincide con
+    # el nombre de la hoja de la que viene? (lo mostramos por consola,
+    # no detiene el proceso si hay discrepancias, solo informa)
+    discrepancias = (df["Dt_Customer"].dt.year.astype(str) != df["hoja_origen"]).sum()
+    print(f"[customer] Registros cuyo año de alta no coincide con su hoja: {discrepancias}")
+
+    # --- duplicados ---
+    duplicados_id = df["id"].duplicated().sum()
+    print(f"[customer] IDs duplicados: {duplicados_id}")
+
+    return df
+
+
+# ============================================================
+# 3. UNIÓN DE AMBOS DATASETS
+# ============================================================
+def unir_datasets(df_bank, df_customer):
+    # Unión por el identificador de cliente. Usamos 'inner' porque el
+    # análisis de campañas (bank) solo tiene sentido cruzado con las
+    # características demográficas de esos mismos clientes.
+    df_final = df_bank.merge(df_customer, on="id", how="inner")
+
+    solo_en_customer = set(df_customer["id"]) - set(df_bank["id"])
+    print(f"[merge] Clientes en customer-details sin campañas asociadas: {len(solo_en_customer)}")
+    print(f"[merge] Registros en el dataset final: {len(df_final)}")
+
+    return df_final
+
+
+# ============================================================
+# EJECUCIÓN
+# ============================================================
+if __name__ == "__main__":
+    df_bank = cargar_y_limpiar_bank(f"{RUTA_RAW}/bank-additional.csv")
+    df_customer = cargar_y_limpiar_customer(f"{RUTA_RAW}/customer-details.xlsx")
+    df_final = unir_datasets(df_bank, df_customer)
+
+    df_bank.to_csv(f"{RUTA_PROCESSED}/bank_clean.csv", index=False)
+    df_customer.to_csv(f"{RUTA_PROCESSED}/customer_clean.csv", index=False)
+    df_final.to_csv(f"{RUTA_PROCESSED}/dataset_final.csv", index=False)
+
+    print("\nArchivos generados en data/processed/:")
+    print(" - bank_clean.csv")
+    print(" - customer_clean.csv")
+    print(" - dataset_final.csv")
+
+    print("\nResumen de nulos restantes en dataset_final:")
+    print(df_final.isnull().sum()[df_final.isnull().sum() > 0])
