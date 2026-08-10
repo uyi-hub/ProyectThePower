@@ -1,0 +1,142 @@
+# EDA: Campañas de Marketing Directo de una Institución Bancaria
+
+Análisis exploratorio de datos (EDA) sobre las campañas de marketing telefónico de una institución bancaria portuguesa, cruzadas con las características demográficas de sus clientes. Proyecto realizado en Python + Pandas como parte del módulo "Python for data".
+
+## 🎯 Objetivo
+
+Explorar qué variables (demográficas, de comportamiento y del contexto económico) están más relacionadas con que un cliente suscriba o no un depósito a plazo, a partir de dos fuentes de datos:
+
+- **`bank-additional.csv`**: histórico de contactos de campaña (2015-2019), con datos del cliente, del contacto y del contexto macroeconómico del momento.
+- **`customer-details.xlsx`**: datos demográficos y de comportamiento de compra de los clientes (ingresos, hijos, visitas web...), repartidos en 3 hojas por año de alta (2012, 2013, 2014).
+
+## 📂 Estructura del repositorio
+
+```
+├── README.md
+├── requirements.txt
+├── data/
+│   ├── raw/                              # Datos originales, sin modificar
+│   │   ├── bank-additional.csv
+│   │   └── customer-details.xlsx
+│   └── processed/                        # Datos ya limpios / transformados
+│       ├── bank_clean.csv
+│       ├── customer_clean.csv
+│       ├── dataset_final.csv             # bank + customer unidos por ID
+│       ├── resumen_estadistico.csv
+│       ├── matriz_correlacion.csv
+│       ├── tasa_suscripcion_categorias.csv
+│       ├── tasa_suscripcion_temporal.csv
+│       └── comparativa_yes_no.csv
+├── scripts/
+│   ├── 01_limpieza_transformacion.py     # Limpieza y transformación de ambos datasets
+│   ├── 02_analisis_descriptivo.py        # Estadísticos, correlaciones, tasas de suscripción
+│   └── 03_visualizacion.py               # Gráficos (matplotlib + seaborn)
+└── visualizaciones/                      # Gráficos generados (.png)
+```
+
+## ▶️ Cómo ejecutar el proyecto
+
+```bash
+pip install -r requirements.txt
+cd scripts
+python3 01_limpieza_transformacion.py   # genera data/processed/
+python3 02_analisis_descriptivo.py      # imprime el análisis y guarda tablas de apoyo
+python3 03_visualizacion.py             # genera las imágenes en visualizaciones/
+```
+
+Los scripts usan rutas relativas (`../data/...`), así que deben ejecutarse desde dentro de la carpeta `scripts/`.
+
+---
+
+## 🧹 1. Transformación y limpieza de datos
+
+Antes de analizar nada, se hizo una exploración inicial (`df.info()`, `df.isnull().sum()`, `df[col].unique()`) que reveló varios problemas de calidad. Decisiones tomadas:
+
+### `bank-additional.csv`
+| Problema encontrado | Decisión tomada |
+|---|---|
+| Columna `Unnamed: 0` (índice residual) | Eliminada |
+| Nombres de columna con puntos (`emp.var.rate`) | Renombradas con guion bajo (`emp_var_rate`) para poder usarlas como atributos |
+| `marital` y `poutcome` en MAYÚSCULAS, el resto en minúsculas | Todo el texto normalizado a minúsculas |
+| Nulos en `job`, `marital`, `education` (0.2%-4%) | Rellenados con `"unknown"`, siguiendo la misma convención que el dataset original de UCI (bank-marketing) en vez de eliminar filas |
+| `default`, `housing`, `loan` como float 0/1/NaN | Convertidos a texto `"yes"` / `"no"` / `"unknown"` (más legible y evita confundir el NaN con un 0) |
+| `age` con ~12% de nulos | Imputados con la mediana de edad **por ocupación** (`job`), ya que la edad varía sistemáticamente según el trabajo (ej. `student` vs `retired`) |
+| `cons.price.idx`, `cons.conf.idx`, `euribor3m`, `nr.employed` como texto con coma decimal (`"93,994"`) | Convertidos a `float` reemplazando la coma por un punto |
+| Nulos en `cons_price_idx` (1.1%) y `euribor3m` (21.5%) | Imputados con la mediana **del mismo mes y año de contacto**, ya que son indicadores macroeconómicos de un periodo, no del cliente individual (todos los contactos del mismo mes comparten prácticamente el mismo valor) |
+| `date` en formato texto español (`"2-agosto-2019"`) | Parseado a `datetime` con un diccionario de meses en español; de aquí se derivan `contact_month` y `contact_year`, que el enunciado menciona pero no venían como columnas independientes en el CSV recibido |
+| `pdays = 999` | Es un código especial ("nunca contactado antes"), no un número real de días. Se mantiene tal cual (convención estándar del dataset) y se añade la columna booleana `contactado_previamente` para no confundirlo con un valor numérico real en el análisis |
+| Columnas `latitude` / `longitude` | No aparecen descritas en el enunciado y sus coordenadas corresponden a EE. UU., no a Portugal. Todo indica que son datos sintéticos sin relación real con el negocio: se conservan en el CSV limpio por transparencia, pero se excluyen del análisis y del informe |
+| Duplicados | Comprobado: 0 filas duplicadas |
+
+### `customer-details.xlsx`
+- Las 3 hojas (`2012`, `2013`, `2014`) se unieron en un único DataFrame, añadiendo una columna de control (`hoja_origen`) para poder verificar que el año de alta (`Dt_Customer`) coincide con la hoja de la que procede cada cliente (comprobado: **0 discrepancias**).
+- Columna `Unnamed: 0` eliminada.
+- `ID` renombrado a `id` para que coincida con la clave de `bank-additional.csv` (`id_` → `id`).
+- Sin duplicados de `ID`, sin nulos, sin valores fuera de rango (ingresos, nº de hijos, visitas web todos dentro de rangos razonables).
+
+### Unión de ambos datasets
+Se cruzan por el identificador de cliente (`id`) con un `inner join`: de los 43.170 clientes de `customer-details.xlsx`, **170 no tienen ningún contacto de campaña asociado** y quedan fuera del dataset final (`dataset_final.csv`, 43.000 filas), ya que el análisis de campañas no aplica a clientes sin campañas.
+
+---
+
+## 📊 2. Análisis descriptivo — Principales hallazgos
+
+### Variable objetivo muy desbalanceada
+Solo el **11,3%** de los clientes contactados (4.844 de 43.000) suscribió el depósito a plazo. Esto es clave: cualquier comparación de medias entre "yes" y "no" debe leerse teniendo en cuenta que el grupo "yes" es mucho más pequeño.
+
+![Balance de clases](visualizaciones/01_balance_clases.png)
+
+### La duración de la llamada es, por lejos, el indicador más asociado al éxito
+Los clientes que suscriben hablan de media **551 segundos** (~9 min) frente a **220 segundos** (~3,5 min) de quienes no suscriben — un 150% más. Es un patrón lógico (una conversación larga suele implicar interés real), aunque **importante matizarlo**: la duración solo se conoce *después* de colgar, así que no es una variable útil para decidir a quién llamar, solo para entender qué pasó.
+
+![Duración de la llamada vs suscripción](visualizaciones/05_duracion_llamada_vs_suscripcion.png)
+
+### El resultado de la campaña anterior es un fuerte predictor
+Si la campaña anterior con ese cliente terminó en éxito (`poutcome = success`), la probabilidad de que vuelva a suscribir ahora es del **65,3%**, muy por encima del 8,8% de los clientes sin contacto previo (`nonexistent`) y del 14,2% de quienes fallaron antes.
+
+![Tasa de suscripción por poutcome](visualizaciones/09_tasa_suscripcion_por_poutcome.png)
+
+### El canal de contacto importa
+Contactar por **móvil (`cellular`)** casi triplica la tasa de éxito (14,7%) respecto al teléfono fijo (`telephone`, 5,2%).
+
+![Tasa de suscripción por canal](visualizaciones/08_tasa_suscripcion_por_canal.png)
+
+### La ocupación y el nivel educativo marcan diferencias claras
+- **Estudiantes** (31,3%) y **jubilados** (25,2%) suscriben muchísimo más que la media (11,3%), probablemente porque ambos colectivos suelen tener menos deuda/menor necesidad de liquidez inmediata y más disposición al ahorro.
+- **Blue-collar** (6,9%) y **servicios** (8,1%) son los perfiles con menor tasa de conversión.
+- A más nivel educativo (`university.degree`, 13,7%) mejor tasa que educación básica (`basic.9y`, 7,8%), aunque destaca que el grupo `illiterate` (22,2%) es una excepción — probablemente por ser una categoría con muy pocos clientes.
+
+![Tasa de suscripción por ocupación](visualizaciones/03_tasa_suscripcion_por_job.png)
+![Tasa de suscripción por educación](visualizaciones/04_tasa_suscripcion_por_educacion.png)
+
+### El contexto económico también influye
+Los indicadores macroeconómicos (`euribor3m`, `emp_var_rate`, `nr_employed`) están fuertemente correlacionados entre sí (0,77–0,91), lo cual tiene sentido: todos reflejan el ciclo económico general. Los clientes que **suscriben** fueron contactados, en promedio, en periodos con un euríbor más bajo (2,68% vs 4,04%) y una tasa de variación del empleo negativa (-1,24 vs +0,24) — es decir, **en momentos de peor coyuntura económica**, cuando un depósito bancario resulta más atractivo frente a otras alternativas de inversión.
+
+![Mapa de correlación](visualizaciones/06_mapa_correlacion.png)
+
+Sin embargo, **no se observa una estacionalidad clara mes a mes**: la tasa de suscripción fluctúa entre el 8,5% y el 14,3% sin un patrón estable a lo largo de 2015-2019, lo que sugiere que el contexto económico pesa más que el simple calendario.
+
+![Evolución temporal](visualizaciones/07_evolucion_temporal_suscripcion.png)
+
+### Las variables demográficas del segundo dataset no muestran relación aparente
+`Income`, `Kidhome`, `Teenhome` y `NumWebVisitsMonth` presentan diferencias insignificantes entre clientes que suscriben y los que no (todas las diferencias porcentuales están por debajo del 1%), y correlaciones prácticamente nulas con el resto de variables. Esto sugiere que, en este dataset, el comportamiento de suscripción a un depósito bancario está más ligado al **contexto de la propia llamada y a la situación económica** que al perfil socioeconómico general del cliente.
+
+![Ingresos vs suscripción](visualizaciones/10_income_vs_suscripcion.png)
+
+### Otras relaciones detectadas
+- `pdays` y `previous` están correlacionadas negativamente (-0,59): tiene sentido, cuantas más veces se ha contactado antes (`previous` alto), menos días habrán pasado desde el último contacto (`pdays` bajo).
+- `campaign` (número de contactos en esta campaña) tiene una relación negativa con la suscripción: a más intentos, menor tasa de éxito por contacto (2,05 de media en quienes suscriben vs 2,63 en quienes no) — insistir demasiado no mejora el resultado.
+
+---
+
+## ⚠️ Limitaciones y consideraciones
+
+- **`duration` no debería usarse para predecir** quién suscribirá antes de la llamada, ya que solo se conoce al terminarla; se incluye en el análisis descriptivo por su valor explicativo, no predictivo.
+- Las columnas `latitude`/`longitude` parecen datos sintéticos sin relación con el negocio real (coordenadas en EE. UU. para un banco portugués) y se excluyeron del análisis.
+- 170 clientes de `customer-details.xlsx` no tienen contactos de campaña y no aparecen en el dataset final combinado.
+- 248 registros sin fecha de contacto se quedan sin poder imputar los indicadores económicos por periodo (no se sabe a qué mes/año pertenecen), por lo que mantienen valores nulos en `cons_price_idx` y `euribor3m`.
+
+## 🛠️ Herramientas utilizadas
+
+Python 3, Pandas, NumPy, Matplotlib, Seaborn, openpyxl — desarrollado en Visual Studio Code.
+
