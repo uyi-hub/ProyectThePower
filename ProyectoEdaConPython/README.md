@@ -10,4 +10,3 @@ Estructura sugerida dentro de esta carpeta:
 - reports/        # informes y visualizaciones finales
 - README.md       # este archivo
 
-Añade aquí tus archivos (notebooks, scripts y datos). Si prefieres otra estructura, dime y la adapto.
